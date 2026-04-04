@@ -387,7 +387,7 @@ const BookingCalendar = () => {
       `🧼 *Servicio:* ${selectedServiceLabel}\n` +
       (selectedExtras.length > 0 ? `➕ *Extras:* ${extrasInfo}\n` : "") +
       `💶 *Total estimado:* ${totalPrice} €\n\n` +
-      `📍 *Dirección:* Calle del Lavadero, 45 – 28001 Madrid\n\n` +
+      `📍 *Dirección:* ${BUSINESS.address}\n\n` +
       `📞 Te llamaremos para confirmar. ¡Gracias! 🧼✨`;
 
     try {
