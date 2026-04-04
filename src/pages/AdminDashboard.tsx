@@ -76,6 +76,17 @@ for (let h = 10; h <= 20; h++) {
 }
 WORK_HOURS.push("20:30");
 
+// Franjas que bloquea cada servicio (30 min cada una)
+const SERVICE_SLOTS: Record<string, number> = {
+  exterior:  1,
+  interior:  3,
+  completo:  4,
+  tapiceria: 7,
+};
+
+const timeToMin = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+const slotsForBooking = (b: Booking) => SERVICE_SLOTS[b.service_type] ?? 1;
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const parseNotes = (notes: string | null) => ({
   vehicle: notes?.match(/Vehículo: ([^|]+)/)?.[1]?.trim() ?? null,
@@ -169,7 +180,19 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   const isBlocked    = (d: Date) => blockedDays.some((b) => isSameDay(parseISO(b.blocked_date), d));
   const getBlockInfo = (d: Date) => blockedDays.find((b) => isSameDay(parseISO(b.blocked_date), d));
   const dayBookings  = (d: Date) => bookings.filter((b) => b.booking_date === format(d, "yyyy-MM-dd") && b.status !== "cancelled");
+  // Devuelve reservas que COMIENZAN en esta franja (para renderizar con rowSpan)
   const slotBookings = (d: Date, t: string) => dayBookings(d).filter((b) => b.booking_time === t);
+  // Comprueba si esta franja está ocupada por una reserva que empezó ANTES
+  const slotIsCovered = (d: Date, t: string) => {
+    const dateStr = format(d, "yyyy-MM-dd");
+    const tMin = timeToMin(t);
+    return bookings.filter(b => b.status !== "cancelled").some(b => {
+      if (b.booking_date !== dateStr) return false;
+      const startMin = timeToMin(b.booking_time);
+      const endMin = startMin + slotsForBooking(b) * 30;
+      return tMin > startMin && tMin < endMin;
+    });
+  };
 
   // ── Filtros lista ──────────────────────────────────────────────────────────
   const filtered = bookings.filter((b) => {
@@ -551,17 +574,30 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
                         const blocked      = isBlocked(day);
                         const cellBookings = slotBookings(day, hour);
                         const isWeekend    = day.getDay() === 0;
+                        const covered      = !blocked && slotIsCovered(day, hour);
+
+                        // Si está cubierta por rowSpan de una reserva anterior, no renderizar celda
+                        if (covered) return null;
+
+                        // Calcular rowSpan: si hay reserva que empieza aquí, ocupa sus franjas
+                        const mainBooking = cellBookings[0];
+                        const rowSpanVal  = mainBooking ? slotsForBooking(mainBooking) : 1;
 
                         return (
-                          <td key={day.toISOString()} className={`border-r border-b py-1 px-1 align-top ${
-                            isToday(day) ? "bg-secondary/5" : blocked ? "bg-red-50/50" : isWeekend ? "bg-muted/10" : ""
-                          }`} style={{ minHeight: 36 }}>
+                          <td
+                            key={day.toISOString()}
+                            rowSpan={rowSpanVal}
+                            className={`border-r border-b py-1 px-1 align-top ${
+                              isToday(day) ? "bg-secondary/5" : blocked ? "bg-red-50/50" : isWeekend ? "bg-muted/10" : ""
+                            }`}
+                            style={{ minHeight: rowSpanVal * 36, verticalAlign: "top" }}
+                          >
                             {blocked ? (
                               <div className="h-8 flex items-center justify-center">
                                 <Ban className="w-3 h-3 text-red-300 opacity-40" />
                               </div>
                             ) : (
-                              <div className="space-y-0.5">
+                              <div className="space-y-0.5 h-full">
                                 {cellBookings.map((b) => <CompactCard key={b.id} b={b} />)}
                               </div>
                             )}

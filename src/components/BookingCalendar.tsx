@@ -42,8 +42,20 @@ interface BusinessHours {
 interface Booking {
   booking_date: string;
   booking_time: string;
+  service_type: string;
   status: string;
 }
+
+// Franjas de 30 min que bloquea cada servicio
+const SERVICE_SLOTS: Record<string, number> = {
+  exterior:  1,  // 30 min
+  interior:  3,  // 90 min
+  completo:  4,  // 120 min
+  tapiceria: 7,  // 210 min (máximo)
+};
+
+const timeToMin = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+const minToTime = (min: number) => { const h = Math.floor(min / 60); const m = min % 60; return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0"); };
 
 const vehicleTypes = [
   { value: "turismo", label: "Turismo" },
@@ -188,7 +200,7 @@ const BookingCalendar = () => {
     const fetchBookings = async () => {
       const { data, error } = await supabase
         .from("bookings")
-        .select("booking_date, booking_time, status")
+        .select("booking_date, booking_time, service_type, status")
         .in("status", ["pending", "confirmed"]);
       if (data && !error) {
         setBookings(data);
@@ -256,9 +268,19 @@ const BookingCalendar = () => {
     return slots;
   };
 
+  // Comprueba si un slot está bloqueado por una reserva (incluyendo duración del servicio)
   const isSlotOccupied = (date: Date, time: string) => {
     const dateStr = format(date, "yyyy-MM-dd");
-    return bookings.some(b => b.booking_date === dateStr && b.booking_time === time);
+    const slotMin = timeToMin(time);
+
+    return bookings.some(b => {
+      if (b.booking_date !== dateStr) return false;
+      const startMin = timeToMin(b.booking_time);
+      const slots = SERVICE_SLOTS[b.service_type] ?? 1;
+      const endMin = startMin + slots * 30;
+      // El slot queda bloqueado si cae dentro del rango [start, end)
+      return slotMin >= startMin && slotMin < endMin;
+    });
   };
 
   const isDateClosed = (date: Date) => {
