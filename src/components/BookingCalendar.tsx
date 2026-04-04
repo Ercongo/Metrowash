@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { BUSINESS } from "@/config/business";
 import { Calendar } from "@/components/ui/calendar";
 import { Button } from "@/components/ui/button";
@@ -161,6 +162,7 @@ const cleanPhoneNumber = (phone: string): string => {
 };
 
 const BookingCalendar = () => {
+  const navigate = useNavigate();
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [selectedTime, setSelectedTime] = useState<string>("");
   const [selectedService, setSelectedService] = useState<string>("");
@@ -434,17 +436,16 @@ const BookingCalendar = () => {
       });
     }
 
-    // Reset
-    setSelectedDate(undefined);
-    setSelectedTime("");
-    setSelectedService("");
-    setSelectedExtras([]);
-    setFormData({
-      name: "", lastName: "", email: "", phone: "",
-      vehicleBrand: "", vehicleModel: "", vehicleType: "", seats: "",
+    // Redirigir a página de confirmación
+    const params = new URLSearchParams({
+      nombre: fullName,
+      fecha: formattedDate,
+      hora: selectedTime,
+      servicio: selectedServiceLabel,
+      total: String(totalPrice),
+      vehiculo: vehicleInfo,
     });
-    setErrors({});
-    setStep(1);
+    setTimeout(() => navigate(`/reserva-confirmada?${params.toString()}`), 1200);
   };
 
   const stepLabels = ["Datos", "Servicio", "Extras", "Resumen", "Fecha"];
