@@ -170,7 +170,8 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
 
   // Actualizar bookings disponibles para el formulario teléfono en tiempo real
   useEffect(() => {
-    const active = bookings.filter(b => ["pending","confirmed"].includes(b.status));
+    // Reservas activas para bloquear slots en formulario telefónico
+    const active = bookings.filter(b => ["pending","confirmed"].includes(b.status) && b.status !== "cancelled");
     setPhoneBookings(active);
   }, [bookings]);
 
@@ -178,8 +179,17 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   const updateStatus = async (id: string, status: string) => {
     setUpdating(id);
     const { error } = await supabase.from("bookings").update({ status, updated_at: new Date().toISOString() }).eq("id", id);
-    if (error) toast({ title:"Error al actualizar", variant:"destructive" });
-    else { toast({ title:`Reserva ${STATUS_CONFIG[status]?.label.toLowerCase()}` }); fetchBookings(); }
+    if (error) {
+      toast({ title:"Error al actualizar", variant:"destructive" });
+    } else {
+      toast({ title:`Reserva ${STATUS_CONFIG[status]?.label.toLowerCase()}` });
+      // Cerrar tarjeta expandida en calendario si se cancela/completa
+      if (status === "cancelled" || status === "completed") {
+        setExpandedId(null);
+      }
+      // Doble fetch para asegurar que el calendario se actualiza inmediatamente
+      await fetchBookings();
+    }
     setUpdating(null);
   };
 
@@ -200,7 +210,12 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   const isBlocked    = (d: Date) => blockedDays.some(b => isSameDay(parseISO(b.blocked_date), d));
   const getBlockInfo = (d: Date) => blockedDays.find(b => isSameDay(parseISO(b.blocked_date), d));
   const dayBookings  = (d: Date) => bookings.filter(b => b.booking_date === format(d,"yyyy-MM-dd") && b.status !== "cancelled");
-  const slotBookings = (d: Date, t: string) => dayBookings(d).filter(b => b.booking_time === t);
+  // Solo reservas activas (no canceladas) que EMPIEZAN en esta franja
+  const slotBookings = (d: Date, t: string) => bookings.filter(
+    b => b.booking_date === format(d,"yyyy-MM-dd") &&
+         b.booking_time === t &&
+         b.status !== "cancelled"
+  );
   const slotIsCovered = (d: Date, t: string) => {
     const dateStr = format(d,"yyyy-MM-dd"); const tMin = timeToMin(t);
     return bookings.filter(b => b.status !== "cancelled").some(b => {
@@ -324,7 +339,10 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
                 <Button size="sm" className="h-6 text-xs bg-green-600 hover:bg-green-700 text-white px-2" disabled={isUp} onClick={()=>updateStatus(b.id,"confirmed")}>✓ Confirmar</Button>
                 <Button size="sm" variant="outline" className="h-6 text-xs border-red-200 text-red-600 hover:bg-red-50 px-2" disabled={isUp} onClick={()=>updateStatus(b.id,"cancelled")}>✗ Cancelar</Button>
               </>}
-              {b.status==="confirmed" && <Button size="sm" className="h-6 text-xs px-2" disabled={isUp} onClick={()=>updateStatus(b.id,"completed")}><CalendarCheck className="w-3 h-3 mr-1"/>Completada</Button>}
+              {b.status==="confirmed" && <>
+                <Button size="sm" className="h-6 text-xs px-2" disabled={isUp} onClick={()=>updateStatus(b.id,"completed")}><CalendarCheck className="w-3 h-3 mr-1"/>Completada</Button>
+                <Button size="sm" variant="outline" className="h-6 text-xs border-red-200 text-red-600 hover:bg-red-50 px-2" disabled={isUp} onClick={()=>updateStatus(b.id,"cancelled")}>✗ Cancelar</Button>
+              </>}
               {["cancelled","completed"].includes(b.status) && <Button size="sm" variant="outline" className="h-6 text-xs px-2" disabled={isUp} onClick={()=>updateStatus(b.id,"pending")}><AlertCircle className="w-3 h-3 mr-1"/>Reabrir</Button>}
               {b.customer_phone && <a href={`https://wa.me/34${b.customer_phone.replace(/\D/g,"").slice(-9)}`} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()}><Button size="sm" variant="outline" className="h-6 text-xs px-2 text-green-700 border-green-200 hover:bg-green-50"><Phone className="w-3 h-3 mr-1"/>WA</Button></a>}
             </div>
@@ -380,7 +398,19 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
                   </AlertDialogContent>
                 </AlertDialog>
               </>}
-              {b.status==="confirmed" && <Button size="sm" disabled={isUp} onClick={()=>updateStatus(b.id,"completed")}><CalendarCheck className="w-3.5 h-3.5 mr-1"/>Completada</Button>}
+              {b.status==="confirmed" && <>
+                <Button size="sm" disabled={isUp} onClick={()=>updateStatus(b.id,"completed")}><CalendarCheck className="w-3.5 h-3.5 mr-1"/>Completada</Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button size="sm" variant="outline" className="flex-1 sm:flex-none border-red-200 text-red-600 hover:bg-red-50" disabled={isUp}><XCircle className="w-3.5 h-3.5 mr-1"/>Cancelar</Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader><AlertDialogTitle>¿Cancelar esta reserva?</AlertDialogTitle>
+                    <AlertDialogDescription>Reserva de <strong>{b.customer_name}</strong>. Quedará cancelada — puedes reabrirla.</AlertDialogDescription></AlertDialogHeader>
+                    <AlertDialogFooter><AlertDialogCancel>No, mantener</AlertDialogCancel><AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={()=>updateStatus(b.id,"cancelled")}>Sí, cancelar</AlertDialogAction></AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>}
               {["cancelled","completed"].includes(b.status) && <Button size="sm" variant="outline" className="text-xs" disabled={isUp} onClick={()=>updateStatus(b.id,"pending")}><AlertCircle className="w-3.5 h-3.5 mr-1"/>Reabrir</Button>}
               {b.customer_phone && <a href={`https://wa.me/34${b.customer_phone.replace(/\D/g,"").slice(-9)}`} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline" className="w-full text-xs text-green-700 border-green-200 hover:bg-green-50"><Phone className="w-3.5 h-3.5 mr-1"/>WhatsApp</Button></a>}
             </div>
