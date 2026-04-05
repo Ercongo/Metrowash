@@ -14,6 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
+      blocked_days: {
+        Row: {
+          id: string
+          blocked_date: string
+          reason: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          blocked_date: string
+          reason?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          blocked_date?: string
+          reason?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
       bookings: {
         Row: {
           booking_date: string
