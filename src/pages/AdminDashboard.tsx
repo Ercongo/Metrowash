@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -143,11 +143,15 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   const [errors,          setErrors]          = useState<Record<string,string>>({});
 
   // ── Fetch
-  const fetchBookings = useCallback(async () => {
-    setLoading(true);
-    const { data } = await supabase.from("bookings").select("*").order("booking_date",{ascending:true}).order("booking_time",{ascending:true});
-    setBookings(data ?? []);
-    setLoading(false);
+  const fetchBookings = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    const { data } = await supabase
+      .from("bookings")
+      .select("*")
+      .order("booking_date", { ascending: true })
+      .order("booking_time", { ascending: true });
+    if (data) setBookings(data);
+    if (showLoading) setLoading(false);
   }, []);
   const fetchBlockedDays = useCallback(async () => {
     const { data } = await supabase.from("blocked_days").select("*").order("blocked_date",{ascending:true});
@@ -162,7 +166,7 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   useEffect(() => {
     fetchBookings(); fetchBlockedDays(); fetchBusinessHours();
     const ch = supabase.channel("admin-rt")
-      .on("postgres_changes",{event:"*",schema:"public",table:"bookings"},fetchBookings)
+      .on("postgres_changes",{event:"*",schema:"public",table:"bookings"},()=>fetchBookings(false))
       .on("postgres_changes",{event:"*",schema:"public",table:"blocked_days"},fetchBlockedDays)
       .subscribe();
     return () => { supabase.removeChannel(ch); };
@@ -178,17 +182,30 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   // ── Acciones reservas
   const updateStatus = async (id: string, status: string) => {
     setUpdating(id);
-    const { error } = await supabase.from("bookings").update({ status, updated_at: new Date().toISOString() }).eq("id", id);
+
+    // 1. ACTUALIZACIÓN OPTIMISTA: modifica el estado local inmediatamente
+    //    para que la UI responda al instante sin esperar a Supabase
+    setBookings(prev => prev.map(b => b.id === id ? { ...b, status } : b));
+
+    // Cerrar tarjeta expandida en calendario al cancelar/completar
+    if (status === "cancelled" || status === "completed") {
+      setExpandedId(null);
+    }
+
+    // 2. Actualizar en Supabase
+    const { error } = await supabase
+      .from("bookings")
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq("id", id);
+
     if (error) {
-      toast({ title:"Error al actualizar", variant:"destructive" });
+      // Si hay error, revertir el estado optimista
+      toast({ title: "Error al actualizar", variant: "destructive" });
+      await fetchBookings(false); // refetch para restaurar estado real
     } else {
-      toast({ title:`Reserva ${STATUS_CONFIG[status]?.label.toLowerCase()}` });
-      // Cerrar tarjeta expandida en calendario si se cancela/completa
-      if (status === "cancelled" || status === "completed") {
-        setExpandedId(null);
-      }
-      // Doble fetch para asegurar que el calendario se actualiza inmediatamente
-      await fetchBookings();
+      toast({ title: `Reserva ${STATUS_CONFIG[status]?.label.toLowerCase()}` });
+      // Refetch silencioso en background para sincronizar con el servidor
+      fetchBookings(false);
     }
     setUpdating(null);
   };
@@ -297,13 +314,13 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   };
 
   // ── Filtros lista
-  const filtered = bookings.filter(b => {
+  const filtered = useMemo(() => bookings.filter(b => {
     const ms = !search || b.customer_name.toLowerCase().includes(search.toLowerCase()) || (b.customer_phone??"").includes(search) || (b.customer_email??"").toLowerCase().includes(search.toLowerCase());
     const mst = filterStatus==="all" || (filterStatus==="active" && ["pending","confirmed"].includes(b.status)) || b.status===filterStatus;
     const date = parseISO(b.booking_date);
     const md = filterDate==="all" || (filterDate==="today"&&isToday(date)) || (filterDate==="tomorrow"&&isTomorrow(date)) || (filterDate==="upcoming"&&isAfter(date,startOfDay(new Date())));
     return ms && mst && md;
-  });
+  }), [bookings, search, filterStatus, filterDate]);
   const stats = {
     total:     bookings.filter(b=>["pending","confirmed"].includes(b.status)).length,
     pending:   bookings.filter(b=>b.status==="pending").length,
