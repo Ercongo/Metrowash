@@ -183,12 +183,34 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   const updateStatus = async (id: string, status: string) => {
     setUpdating(id);
 
+    // Si se cancela, ELIMINAR la reserva completamente de la base de datos
+    if (status === "cancelled") {
+      // Actualización optimista: quitar de la lista local inmediatamente
+      setBookings(prev => prev.filter(b => b.id !== id));
+      setExpandedId(null);
+
+      const { error } = await supabase
+        .from("bookings")
+        .delete()
+        .eq("id", id);
+
+      if (error) {
+        toast({ title: "Error al cancelar la reserva", variant: "destructive" });
+        await fetchBookings(false);
+      } else {
+        toast({ title: "Reserva cancelada y eliminada" });
+        fetchBookings(false);
+      }
+      setUpdating(null);
+      return;
+    }
+
     // 1. ACTUALIZACIÓN OPTIMISTA: modifica el estado local inmediatamente
     //    para que la UI responda al instante sin esperar a Supabase
     setBookings(prev => prev.map(b => b.id === id ? { ...b, status } : b));
 
-    // Cerrar tarjeta expandida en calendario al cancelar/completar
-    if (status === "cancelled" || status === "completed") {
+    // Cerrar tarjeta expandida en calendario al completar
+    if (status === "completed") {
       setExpandedId(null);
     }
 
@@ -360,7 +382,7 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
                 <Button size="sm" className="h-6 text-xs px-2" disabled={isUp} onClick={()=>updateStatus(b.id,"completed")}><CalendarCheck className="w-3 h-3 mr-1"/>Completada</Button>
                 <Button size="sm" variant="outline" className="h-6 text-xs border-red-200 text-red-600 hover:bg-red-50 px-2" disabled={isUp} onClick={()=>updateStatus(b.id,"cancelled")}>✗ Cancelar</Button>
               </>}
-              {["cancelled","completed"].includes(b.status) && <Button size="sm" variant="outline" className="h-6 text-xs px-2" disabled={isUp} onClick={()=>updateStatus(b.id,"pending")}><AlertCircle className="w-3 h-3 mr-1"/>Reabrir</Button>}
+              {b.status==="completed" && <Button size="sm" variant="outline" className="h-6 text-xs px-2" disabled={isUp} onClick={()=>updateStatus(b.id,"pending")}><AlertCircle className="w-3 h-3 mr-1"/>Reabrir</Button>}
               {b.customer_phone && <a href={`https://wa.me/34${b.customer_phone.replace(/\D/g,"").slice(-9)}`} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()}><Button size="sm" variant="outline" className="h-6 text-xs px-2 text-green-700 border-green-200 hover:bg-green-50"><Phone className="w-3 h-3 mr-1"/>WA</Button></a>}
             </div>
           </div>
@@ -410,7 +432,7 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader><AlertDialogTitle>¿Cancelar esta reserva?</AlertDialogTitle>
-                    <AlertDialogDescription>Reserva de <strong>{b.customer_name}</strong>. Quedará cancelada — puedes reabrirla.</AlertDialogDescription></AlertDialogHeader>
+                    <AlertDialogDescription>Reserva de <strong>{b.customer_name}</strong>. Se eliminará permanentemente.</AlertDialogDescription></AlertDialogHeader>
                     <AlertDialogFooter><AlertDialogCancel>No, mantener</AlertDialogCancel><AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={()=>updateStatus(b.id,"cancelled")}>Sí, cancelar</AlertDialogAction></AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
@@ -423,12 +445,12 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader><AlertDialogTitle>¿Cancelar esta reserva?</AlertDialogTitle>
-                    <AlertDialogDescription>Reserva de <strong>{b.customer_name}</strong>. Quedará cancelada — puedes reabrirla.</AlertDialogDescription></AlertDialogHeader>
+                    <AlertDialogDescription>Reserva de <strong>{b.customer_name}</strong>. Se eliminará permanentemente.</AlertDialogDescription></AlertDialogHeader>
                     <AlertDialogFooter><AlertDialogCancel>No, mantener</AlertDialogCancel><AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={()=>updateStatus(b.id,"cancelled")}>Sí, cancelar</AlertDialogAction></AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
               </>}
-              {["cancelled","completed"].includes(b.status) && <Button size="sm" variant="outline" className="text-xs" disabled={isUp} onClick={()=>updateStatus(b.id,"pending")}><AlertCircle className="w-3.5 h-3.5 mr-1"/>Reabrir</Button>}
+              {b.status==="completed" && <Button size="sm" variant="outline" className="text-xs" disabled={isUp} onClick={()=>updateStatus(b.id,"pending")}><AlertCircle className="w-3.5 h-3.5 mr-1"/>Reabrir</Button>}
               {b.customer_phone && <a href={`https://wa.me/34${b.customer_phone.replace(/\D/g,"").slice(-9)}`} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline" className="w-full text-xs text-green-700 border-green-200 hover:bg-green-50"><Phone className="w-3.5 h-3.5 mr-1"/>WhatsApp</Button></a>}
             </div>
           </div>
@@ -482,7 +504,7 @@ const AdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"/><Input placeholder="Buscar por nombre, teléfono o email..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-9"/></div>
               <Select value={filterStatus} onValueChange={setFilterStatus}><SelectTrigger className="w-full sm:w-52"><Filter className="w-3.5 h-3.5 mr-1.5"/><SelectValue/></SelectTrigger>
-                <SelectContent><SelectItem value="active">Activas (pend. + conf.)</SelectItem><SelectItem value="all">Todas</SelectItem><SelectItem value="pending">Solo pendientes</SelectItem><SelectItem value="confirmed">Solo confirmadas</SelectItem><SelectItem value="cancelled">Canceladas</SelectItem><SelectItem value="completed">Completadas</SelectItem></SelectContent>
+                <SelectContent><SelectItem value="active">Activas (pend. + conf.)</SelectItem><SelectItem value="all">Todas</SelectItem><SelectItem value="pending">Solo pendientes</SelectItem><SelectItem value="confirmed">Solo confirmadas</SelectItem><SelectItem value="completed">Completadas</SelectItem></SelectContent>
               </Select>
               <Select value={filterDate} onValueChange={setFilterDate}><SelectTrigger className="w-full sm:w-44"><CalIcon className="w-3.5 h-3.5 mr-1.5"/><SelectValue/></SelectTrigger>
                 <SelectContent><SelectItem value="all">Todas las fechas</SelectItem><SelectItem value="today">Hoy</SelectItem><SelectItem value="tomorrow">Mañana</SelectItem><SelectItem value="upcoming">Próximas</SelectItem></SelectContent>
