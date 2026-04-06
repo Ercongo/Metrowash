@@ -1,7 +1,7 @@
 export const BUSINESS = {
   name: "MetroWash",
-  phone: "+34 600 123 456",
-  whatsappId: "34600123456",
+  phone: "+34 608 69 21 28",
+  whatsappId: "608692128",
   email: "info@metrowash.es",
   address: "Avenida de los Descubrimientos s/n, Sótano -1, Aparcamiento CC Metromar, 41927 Mairena del Aljarafe (Sevilla)",
   mapsUrl:
